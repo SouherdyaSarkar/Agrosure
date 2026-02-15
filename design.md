@@ -98,7 +98,7 @@
 - **Runtime**: Node.js (Express) or Python (FastAPI)
 - **Authentication**: JWT + Refresh Tokens
 - **Validation**: Joi / Pydantic
-- **ORM**: Prisma / SQLAlchemy
+- **ODM**: Mongoose / Motor (async) / PyMongo
 - **Task Queue**: Bull (Redis-based)
 - **Logging**: Winston / Pino
 - **API Documentation**: Swagger/OpenAPI
@@ -114,10 +114,10 @@
 - **Geospatial**: GeoPandas, Rasterio
 
 ### 2.4 Database & Storage
-- **Primary Database**: PostgreSQL 14+
+- **Primary Database**: MongoDB 6+ (NoSQL)
 - **Caching**: Redis 7+
 - **Object Storage**: AWS S3 / Google Cloud Storage
-- **Search**: Elasticsearch (optional for analytics)
+- **Search**: MongoDB Atlas Search / Elasticsearch
 
 ### 2.5 DevOps & Infrastructure
 - **Cloud Provider**: AWS / GCP
@@ -130,138 +130,243 @@
 
 ---
 
-## 3. Database Design
+## 3. Database Design (MongoDB NoSQL)
 
-### 3.1 Core Entities
+### 3.1 Core Collections
 
-#### Users Table
-```sql
-users (
-  id UUID PRIMARY KEY,
-  phone_number VARCHAR(15) UNIQUE NOT NULL,
-  role ENUM('farmer', 'bank', 'insurance', 'admin'),
-  language_preference VARCHAR(10),
-  created_at TIMESTAMP,
-  updated_at TIMESTAMP
-)
+#### Users Collection
+```javascript
+{
+  _id: ObjectId,
+  phoneNumber: String (unique, indexed),
+  role: String, // 'farmer', 'bank', 'insurance', 'admin'
+  languagePreference: String,
+  createdAt: Date,
+  updatedAt: Date
+}
 ```
 
-#### Farmers Table
-```sql
-farmers (
-  id UUID PRIMARY KEY,
-  user_id UUID REFERENCES users(id),
-  full_name VARCHAR(255),
-  location GEOGRAPHY(POINT),
-  state VARCHAR(100),
-  district VARCHAR(100),
-  village VARCHAR(100),
-  total_land_size DECIMAL(10,2),
-  verification_status ENUM('pending', 'verified', 'rejected'),
-  created_at TIMESTAMP
-)
+#### Farmers Collection
+```javascript
+{
+  _id: ObjectId,
+  userId: ObjectId (ref: users),
+  fullName: String,
+  location: {
+    type: "Point",
+    coordinates: [longitude, latitude] // GeoJSON
+  },
+  address: {
+    state: String,
+    district: String,
+    village: String
+  },
+  totalLandSize: Number,
+  verificationStatus: String, // 'pending', 'verified', 'rejected'
+  landParcels: [
+    {
+      parcelId: ObjectId,
+      landSize: Number,
+      location: {
+        type: "Polygon",
+        coordinates: [[longitude, latitude], ...]
+      },
+      soilType: String,
+      irrigationType: String,
+      ownershipDocumentUrl: String,
+      createdAt: Date
+    }
+  ],
+  createdAt: Date,
+  updatedAt: Date
+}
 ```
 
-#### Land Parcels Table
-```sql
-land_parcels (
-  id UUID PRIMARY KEY,
-  farmer_id UUID REFERENCES farmers(id),
-  land_size DECIMAL(10,2),
-  location GEOGRAPHY(POLYGON),
-  soil_type VARCHAR(50),
-  irrigation_type VARCHAR(50),
-  ownership_document_url TEXT,
-  created_at TIMESTAMP
-)
+#### Crops Collection
+```javascript
+{
+  _id: ObjectId,
+  farmerId: ObjectId (ref: farmers),
+  landParcelId: ObjectId,
+  cropType: String,
+  variety: String,
+  sowingDate: Date,
+  expectedHarvestDate: Date,
+  actualHarvestDate: Date,
+  status: String, // 'planned', 'sown', 'growing', 'harvested'
+  yieldPredictions: [
+    {
+      predictionId: ObjectId,
+      predictedYield: Number,
+      confidenceScore: Number,
+      modelVersion: String,
+      predictionDate: Date,
+      factors: {
+        weather: Object,
+        soil: Object,
+        satellite: Object
+      }
+    }
+  ],
+  createdAt: Date,
+  updatedAt: Date
+}
 ```
 
-#### Crops Table
-```sql
-crops (
-  id UUID PRIMARY KEY,
-  land_parcel_id UUID REFERENCES land_parcels(id),
-  crop_type VARCHAR(100),
-  variety VARCHAR(100),
-  sowing_date DATE,
-  expected_harvest_date DATE,
-  actual_harvest_date DATE,
-  status ENUM('planned', 'sown', 'growing', 'harvested'),
-  created_at TIMESTAMP
-)
+#### Loan Applications Collection
+```javascript
+{
+  _id: ObjectId,
+  farmerId: ObjectId (ref: farmers),
+  cropId: ObjectId (ref: crops),
+  requestedAmount: Number,
+  recommendedAmount: Number,
+  riskScore: Number,
+  status: String, // 'draft', 'submitted', 'under_review', 'approved', 'rejected', 'disbursed'
+  bankId: ObjectId (ref: users),
+  interestRate: Number,
+  tenureMonths: Number,
+  documents: [
+    {
+      type: String,
+      url: String,
+      uploadedAt: Date
+    }
+  ],
+  reviewHistory: [
+    {
+      reviewedBy: ObjectId,
+      action: String,
+      comments: String,
+      timestamp: Date
+    }
+  ],
+  createdAt: Date,
+  updatedAt: Date
+}
 ```
 
-#### Yield Predictions Table
-```sql
-yield_predictions (
-  id UUID PRIMARY KEY,
-  crop_id UUID REFERENCES crops(id),
-  predicted_yield DECIMAL(10,2),
-  confidence_score DECIMAL(5,2),
-  model_version VARCHAR(50),
-  prediction_date TIMESTAMP,
-  factors JSONB,
-  created_at TIMESTAMP
-)
+#### Insurance Policies Collection
+```javascript
+{
+  _id: ObjectId,
+  farmerId: ObjectId (ref: farmers),
+  cropId: ObjectId (ref: crops),
+  providerId: ObjectId (ref: users),
+  policyNumber: String (unique, indexed),
+  premiumAmount: Number,
+  coverageAmount: Number,
+  startDate: Date,
+  endDate: Date,
+  status: String, // 'active', 'expired', 'claimed', 'cancelled'
+  terms: {
+    coverageType: String,
+    exclusions: [String],
+    conditions: [String]
+  },
+  claims: [
+    {
+      claimId: ObjectId,
+      claimAmount: Number,
+      reason: String,
+      evidenceUrls: [String],
+      satelliteVerification: {
+        ndviData: Object,
+        weatherData: Object,
+        verificationDate: Date
+      },
+      status: String, // 'submitted', 'under_review', 'approved', 'rejected', 'settled'
+      fraudScore: Number,
+      settlementAmount: Number,
+      reviewHistory: [
+        {
+          reviewedBy: ObjectId,
+          action: String,
+          comments: String,
+          timestamp: Date
+        }
+      ],
+      createdAt: Date,
+      updatedAt: Date
+    }
+  ],
+  createdAt: Date,
+  updatedAt: Date
+}
 ```
 
-#### Loan Applications Table
-```sql
-loan_applications (
-  id UUID PRIMARY KEY,
-  farmer_id UUID REFERENCES farmers(id),
-  crop_id UUID REFERENCES crops(id),
-  requested_amount DECIMAL(12,2),
-  recommended_amount DECIMAL(12,2),
-  risk_score DECIMAL(5,2),
-  status ENUM('draft', 'submitted', 'under_review', 'approved', 'rejected', 'disbursed'),
-  bank_id UUID REFERENCES users(id),
-  interest_rate DECIMAL(5,2),
-  tenure_months INTEGER,
-  created_at TIMESTAMP,
-  updated_at TIMESTAMP
-)
-```
-
-#### Insurance Policies Table
-```sql
-insurance_policies (
-  id UUID PRIMARY KEY,
-  farmer_id UUID REFERENCES farmers(id),
-  crop_id UUID REFERENCES crops(id),
-  provider_id UUID REFERENCES users(id),
-  policy_number VARCHAR(100) UNIQUE,
-  premium_amount DECIMAL(10,2),
-  coverage_amount DECIMAL(12,2),
-  start_date DATE,
-  end_date DATE,
-  status ENUM('active', 'expired', 'claimed', 'cancelled'),
-  created_at TIMESTAMP
-)
-```
-
-#### Claims Table
-```sql
-claims (
-  id UUID PRIMARY KEY,
-  policy_id UUID REFERENCES insurance_policies(id),
-  claim_amount DECIMAL(12,2),
-  reason TEXT,
-  evidence_urls JSONB,
-  satellite_verification JSONB,
-  status ENUM('submitted', 'under_review', 'approved', 'rejected', 'settled'),
-  fraud_score DECIMAL(5,2),
-  settlement_amount DECIMAL(12,2),
-  created_at TIMESTAMP,
-  updated_at TIMESTAMP
-)
+#### Analytics Collection (Time-Series Data)
+```javascript
+{
+  _id: ObjectId,
+  entityType: String, // 'prediction', 'loan', 'claim'
+  entityId: ObjectId,
+  timestamp: Date,
+  metrics: {
+    accuracy: Number,
+    processingTime: Number,
+    userSatisfaction: Number
+  },
+  metadata: Object
+}
 ```
 
 ### 3.2 Indexing Strategy
-- B-tree indexes on foreign keys
-- GiST indexes on geography columns
-- Composite indexes on (farmer_id, created_at) for queries
-- Partial indexes on status columns for active records
+
+#### Users Collection
+```javascript
+db.users.createIndex({ phoneNumber: 1 }, { unique: true })
+db.users.createIndex({ role: 1 })
+```
+
+#### Farmers Collection
+```javascript
+db.farmers.createIndex({ userId: 1 })
+db.farmers.createIndex({ location: "2dsphere" }) // Geospatial index
+db.farmers.createIndex({ "address.state": 1, "address.district": 1 })
+db.farmers.createIndex({ verificationStatus: 1 })
+```
+
+#### Crops Collection
+```javascript
+db.crops.createIndex({ farmerId: 1, createdAt: -1 })
+db.crops.createIndex({ status: 1 })
+db.crops.createIndex({ cropType: 1 })
+db.crops.createIndex({ expectedHarvestDate: 1 })
+```
+
+#### Loan Applications Collection
+```javascript
+db.loanApplications.createIndex({ farmerId: 1, createdAt: -1 })
+db.loanApplications.createIndex({ status: 1 })
+db.loanApplications.createIndex({ bankId: 1, status: 1 })
+db.loanApplications.createIndex({ createdAt: -1 })
+```
+
+#### Insurance Policies Collection
+```javascript
+db.insurancePolicies.createIndex({ farmerId: 1 })
+db.insurancePolicies.createIndex({ policyNumber: 1 }, { unique: true })
+db.insurancePolicies.createIndex({ status: 1 })
+db.insurancePolicies.createIndex({ providerId: 1, status: 1 })
+db.insurancePolicies.createIndex({ "claims.status": 1 })
+```
+
+### 3.3 Data Modeling Patterns
+
+#### Embedded Documents
+- Land parcels embedded in farmers (1-to-few relationship)
+- Yield predictions embedded in crops (temporal data)
+- Claims embedded in insurance policies (related lifecycle)
+
+#### References
+- User references in farmers, loans, policies (1-to-1 or 1-to-many)
+- Farmer and crop references in loans and policies (many-to-many potential)
+
+#### Hybrid Approach
+- Frequently accessed data: embedded
+- Large or independently queried data: referenced
+- Denormalization for read-heavy operations
 
 ---
 
@@ -461,24 +566,26 @@ Data Collection → Feature Engineering → Model Training → Validation → De
                     ┌───────────┴───────────┐
                     ▼                       ▼
             ┌──────────────┐        ┌──────────────┐
-            │   RDS        │        │   ElastiCache│
-            │  PostgreSQL  │        │   (Redis)    │
+            │   MongoDB    │        │   ElastiCache│
+            │   Atlas      │        │   (Redis)    │
             └──────────────┘        └──────────────┘
 ```
 
 ### 7.2 Scaling Strategy
 - Horizontal pod autoscaling (HPA)
-- Database read replicas
+- MongoDB sharding for horizontal scaling
+- Read preference to secondary nodes
 - CDN for static assets
 - Redis cluster for caching
 - Async job processing with queues
 
 ### 7.3 Disaster Recovery
-- Multi-AZ deployment
-- Automated backups (daily)
-- Point-in-time recovery
+- MongoDB replica set (3+ nodes)
+- Automated backups (continuous with MongoDB Atlas)
+- Point-in-time recovery (PITR)
 - Cross-region replication (optional)
 - Backup retention: 30 days
+- Oplog-based incremental backups
 
 ---
 
